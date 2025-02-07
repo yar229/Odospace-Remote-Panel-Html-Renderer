@@ -21,7 +21,7 @@ public class RemoteDisplayProvider
 
     public async Task DisplayAsync(uint pageNo, byte[] imageBytes, CancellationToken ctx)
     {
-        _logger.LogInformation("Sending image to OSD...");
+        _logger.LogTrace("Sending image to OSD...");
         nint ptrImage = nint.Zero;
         try
         {
@@ -35,7 +35,7 @@ public class RemoteDisplayProvider
         finally
         {
             Marshal.FreeHGlobal(ptrImage);
-            _logger.LogInformation("Image sent.");
+            _logger.LogTrace("Image sent.");
         }
     }
 }
