@@ -1,5 +1,7 @@
-﻿using Microsoft.Extensions.Options;
+﻿using System.Net;
+using Microsoft.Extensions.Options;
 using PuppeteerSharp;
+using SerilogTimings;
 using YaR.Odospace.RemotePanel.HtmlRendererService.Configuration;
 
 namespace YaR.Odospace.RemotePanel.HtmlRendererService.Providers;
@@ -31,9 +33,15 @@ public class ImageProvider : IDisposable
         {
             try
             {
-                _logger.LogTrace($"Reloading page {_page.Url}");
+                using (Operation.Time("Page loading {Url}", _browserConfig.Url))
+                {
+                    var response = _page.Url != _browserConfig.Url
+                        ? await _page.GoToAsync(_browserConfig.Url)
+                        : await _page.ReloadAsync();
+                    if (response.Status is not (HttpStatusCode.OK or HttpStatusCode.NotModified))
+                        _logger.LogError("Error loading page {url}: {text}", _browserConfig.Url, await response.TextAsync());
+                }
 
-                await _page.ReloadAsync();
                 ImageBytes = await _page.ScreenshotDataAsync(_screenshotOptions);
                 var _ = OnImageLoaded?.Invoke(ctx);
                 await Task.Delay(_browserConfig.ReloadDelay, ctx);
@@ -62,15 +70,15 @@ public class ImageProvider : IDisposable
         }
 
         _logger.LogInformation($"Launching browser {_browserConfig.Browser}");
-        _browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
+        _browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true, LogProcess = true, ProtocolTimeout = 10_000});
         _page = await _browser.NewPageAsync();
+        _page.DefaultNavigationTimeout = 10_000;
         await _page.SetViewportAsync(new ViewPortOptions
-        {
+        { 
             DeviceScaleFactor = _browserConfig.ScaleFactor,
             IsLandscape = _browserConfig.IsLandscape,
             IsMobile = _browserConfig.IsMobile
         });
-        await _page.GoToAsync(_browserConfig.Url);
     }
 
     public void Dispose()

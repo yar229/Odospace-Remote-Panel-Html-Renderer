@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using Microsoft.Extensions.Options;
+using SerilogTimings;
 using YaR.Odospace.RemotePanel.HtmlRendererService.Aida;
 using YaR.Odospace.RemotePanel.HtmlRendererService.Configuration;
 
@@ -19,23 +20,31 @@ public class RemoteDisplayProvider
         _ptrAddress = Marshal.StringToHGlobalAnsi(_odospaceServerConfig.Address);
     }
 
-    public async Task DisplayAsync(uint pageNo, byte[] imageBytes, CancellationToken ctx)
+    public async Task DisplayAsync(uint pageNo, byte[]? imageBytes, CancellationToken ctx)
     {
-        _logger.LogTrace("Sending image to OSD...");
-        nint ptrImage = nint.Zero;
-        try
+        if (null == imageBytes)
+            return;
+
+        using (Operation.Time("Sending image to OSD ({Bytes} b)", imageBytes.Length))
         {
-            await Task.Run(() =>
+            var ptrImage = nint.Zero;
+            try
             {
-                ptrImage = Marshal.AllocHGlobal(imageBytes.Length);
-                Marshal.Copy(imageBytes, 0, ptrImage, imageBytes.Length);
-                AidaRDsp.SendImage(_odospaceServerConfig.Port, _ptrAddress, pageNo, ptrImage, (uint)imageBytes.Length);
-            }, ctx);
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(ptrImage);
-            _logger.LogTrace("Image sent.");
+                await Task.Run(() =>
+                {
+                    ptrImage = Marshal.AllocHGlobal(imageBytes.Length);
+                    Marshal.Copy(imageBytes, 0, ptrImage, imageBytes.Length);
+                    AidaRDsp.SendImage(_odospaceServerConfig.Port, _ptrAddress, pageNo, ptrImage, (uint)imageBytes.Length);
+                }, ctx);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(new EventId(1), ex, "Error sending image to OSD server");
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(ptrImage);
+            }
         }
     }
 }
