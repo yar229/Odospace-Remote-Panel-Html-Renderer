@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using Microsoft.Extensions.Options;
 using PuppeteerSharp;
+using Serilog.Events;
 using SerilogTimings;
 using YaR.Odospace.RemotePanel.HtmlRendererService.Configuration;
 
@@ -11,8 +12,8 @@ public class ImageProvider : IDisposable
     private readonly ILogger<RemoteDisplayProvider> _logger;
     private readonly BrowserConfiguration _browserConfig;
 
-    private IBrowser? _browser;
-    private IPage? _page;
+    private IBrowser _browser;
+    private IPage _page;
     private readonly ScreenshotOptions _screenshotOptions = new() { Type = ScreenshotType.Png, FullPage = false, OmitBackground = true, OptimizeForSpeed = true };
 
     public ImageProvider(ILogger<RemoteDisplayProvider> logger, IOptions<BrowserConfiguration> browserOptions)
@@ -22,6 +23,10 @@ public class ImageProvider : IDisposable
     }
 
     public byte[] ImageBytes { get; private set; }
+
+    public byte[] ImageStubBytes { get; private set; } = Array.Empty<byte>();
+
+    public byte[] ImageStubErrorBytes { get; private set; } = Array.Empty<byte>();
 
     public Func<CancellationToken, Task>? OnImageLoaded { get; set; }
 
@@ -33,17 +38,23 @@ public class ImageProvider : IDisposable
         {
             try
             {
-                using (Operation.Time("Page loading {Url}", _browserConfig.Url))
+                bool gotPage ;
+                using (var op = Operation.Begin("Page loading {Url}", _browserConfig.Url))
                 {
                     var response = _page.Url != _browserConfig.Url
                         ? await _page.GoToAsync(_browserConfig.Url)
                         : await _page.ReloadAsync();
-                    if (response.Status is not (HttpStatusCode.OK or HttpStatusCode.NotModified))
-                        _logger.LogError("Error loading page {url}: {text}", _browserConfig.Url, await response.TextAsync());
+
+                    gotPage = response.Status is HttpStatusCode.OK or HttpStatusCode.NotModified;
+                    op.Complete("Status", response.Status.ToString(),
+                        gotPage ? LogEventLevel.Verbose : LogEventLevel.Error);
                 }
 
-                ImageBytes = await _page.ScreenshotDataAsync(_screenshotOptions);
+                ImageBytes = gotPage
+                    ? await _page.ScreenshotDataAsync(_screenshotOptions)
+                    : ImageStubErrorBytes;
                 var _ = OnImageLoaded?.Invoke(ctx);
+
                 await Task.Delay(_browserConfig.ReloadDelay, ctx);
             }
             catch (Exception ex)
@@ -55,8 +66,12 @@ public class ImageProvider : IDisposable
 
     private async Task InitializeAsync(CancellationToken ctx)
     {
-        ImageBytes = File.Exists(_browserConfig.StubImage)
+        ImageBytes = ImageStubBytes = File.Exists(_browserConfig.StubImage)
             ? await File.ReadAllBytesAsync(_browserConfig.StubImage, ctx)
+            : Array.Empty<byte>();
+
+        ImageStubErrorBytes = File.Exists(_browserConfig.StubImageError)
+            ? await File.ReadAllBytesAsync(_browserConfig.StubImageError, ctx)
             : Array.Empty<byte>();
 
         var browserFetcher = new BrowserFetcher
@@ -83,7 +98,7 @@ public class ImageProvider : IDisposable
 
     public void Dispose()
     {
-        _page?.CloseAsync();
-        _browser?.CloseAsync();
+        _page.CloseAsync();
+        _browser.CloseAsync();
     }
 }

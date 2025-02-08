@@ -12,5 +12,6 @@ public class BrowserConfiguration
     public double ScaleFactor { get; set; } = 3;
     public bool IsLandscape { get; set; } = true;
     public bool IsMobile { get; set; } = true;
-    public string StubImage { get; set; } = "Resources\\VaultBoy.jpg";
+    public string StubImage { get; set; }
+    public string StubImageError { get; set; }
 }

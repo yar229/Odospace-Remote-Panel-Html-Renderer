@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using Microsoft.Extensions.Options;
+using Serilog.Events;
 using SerilogTimings;
 using YaR.Odospace.RemotePanel.HtmlRendererService.Aida;
 using YaR.Odospace.RemotePanel.HtmlRendererService.Configuration;
@@ -25,7 +26,7 @@ public class RemoteDisplayProvider
         if (null == imageBytes)
             return;
 
-        using (Operation.Time("Sending image to OSD ({Bytes} b)", imageBytes.Length))
+        using (var op = Operation.Begin("Sending image to OSD ({Bytes} b)", imageBytes.Length))
         {
             var ptrImage = nint.Zero;
             try
@@ -35,11 +36,13 @@ public class RemoteDisplayProvider
                     ptrImage = Marshal.AllocHGlobal(imageBytes.Length);
                     Marshal.Copy(imageBytes, 0, ptrImage, imageBytes.Length);
                     AidaRDsp.SendImage(_odospaceServerConfig.Port, _ptrAddress, pageNo, ptrImage, (uint)imageBytes.Length);
+                    op.Complete(LogEventLevel.Verbose);
                 }, ctx);
             }
             catch (Exception ex)
             {
-                _logger.LogError(new EventId(1), ex, "Error sending image to OSD server");
+                op.Complete(LogEventLevel.Error);
+                _logger.LogError(ex, "Error sending image to OSD server");
             }
             finally
             {
