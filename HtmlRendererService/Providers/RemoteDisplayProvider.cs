@@ -26,7 +26,7 @@ public class RemoteDisplayProvider
         if (null == imageBytes)
             return;
 
-        using (var op = Operation.Begin("Sending image to OSD ({Bytes} b)", imageBytes.Length))
+        using (var oper = Operation.Begin("Sending image to OSD"))
         {
             var ptrImage = nint.Zero;
             try
@@ -36,13 +36,16 @@ public class RemoteDisplayProvider
                     ptrImage = Marshal.AllocHGlobal(imageBytes.Length);
                     Marshal.Copy(imageBytes, 0, ptrImage, imageBytes.Length);
                     AidaRDsp.SendImage(_odospaceServerConfig.Port, _ptrAddress, pageNo, ptrImage, (uint)imageBytes.Length);
-                    op.Complete(LogEventLevel.Verbose);
+                    oper
+                        .EnrichWith("Bytes", imageBytes.Length)
+                        .Complete(LogEventLevel.Verbose);
                 }, ctx);
             }
             catch (Exception ex)
             {
-                op.Complete(LogEventLevel.Error);
-                _logger.LogError(ex, "Error sending image to OSD server");
+                oper
+                    .EnrichWith("Exception", ex)
+                    .Complete(LogEventLevel.Error);
             }
             finally
             {
